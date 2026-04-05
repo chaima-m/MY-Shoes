@@ -344,7 +344,7 @@ const AdminProducts = () => {
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8 animate-fade-in">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 animate-fade-in">
           <div>
             <Button
               variant="ghost"
@@ -367,7 +367,7 @@ const AdminProducts = () => {
                 Ajouter un produit
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
               <DialogHeader>
                 <DialogTitle>
                   {editingProduct ? "Modifier le produit" : "Nouveau produit"}
@@ -404,7 +404,7 @@ const AdminProducts = () => {
                   </Select>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <Label htmlFor="price">Prix (DA)</Label>
                     <Input
@@ -506,7 +506,7 @@ const AdminProducts = () => {
                       />
                     </label>
                     {formData.images.length > 0 && (
-                      <div className="grid grid-cols-4 gap-2 mt-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
                         {formData.images.map((img, idx) => (
                           <div key={idx} className="relative aspect-square">
                             <img

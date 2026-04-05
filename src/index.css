@@ -198,3 +198,8 @@ html {
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+
+/* Prevent accidental horizontal overflow from large absolute elements */
+html, body {
+  overflow-x: hidden;
+}
