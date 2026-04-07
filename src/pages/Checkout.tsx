@@ -1,289 +1,269 @@
-import { useState } from "react";
+// src/pages/Checkout.tsx — REPLACE your existing file
+
+import { useState, useEffect } from "react";
 import { useCart } from "@/contexts/CartContext";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { z } from "zod";
 
 const wilayas = [
-  "Adrar", "Chlef", "Laghouat", "Oum El Bouaghi", "Batna", "Béjaïa", "Biskra",
-  "Béchar", "Blida", "Bouira", "Tamanrasset", "Tébessa", "Tlemcen", "Tiaret",
-  "Tizi Ouzou", "Alger", "Djelfa", "Jijel", "Sétif", "Saïda", "Skikda",
-  "Sidi Bel Abbès", "Annaba", "Guelma", "Constantine", "Médéa", "Mostaganem",
-  "M'Sila", "Mascara", "Ouargla", "Oran", "El Bayadh", "Illizi", "Bordj Bou Arréridj",
-  "Boumerdès", "El Tarf", "Tindouf", "Tissemsilt", "El Oued", "Khenchela",
-  "Souk Ahras", "Tipaza", "Mila", "Aïn Defla", "Naâma", "Aïn Témouchent",
-  "Ghardaïa", "Relizane"
+  "Adrar", "Chlef", "Laghouat", "Oum El Bouaghi", "Batna", "Béjaïa", "Biskra", "Béchar",
+  "Blida", "Bouira", "Tamanrasset", "Tébessa", "Tlemcen", "Tiaret", "Tizi Ouzou", "Alger",
+  "Djelfa", "Jijel", "Sétif", "Saïda", "Skikda", "Sidi Bel Abbès", "Annaba", "Guelma",
+  "Constantine", "Médéa", "Mostaganem", "M'Sila", "Mascara", "Ouargla", "Oran", "El Bayadh",
+  "Illizi", "Bordj Bou Arréridj", "Boumerdès", "El Tarf", "Tindouf", "Tissemsilt", "El Oued",
+  "Khenchela", "Souk Ahras", "Tipaza", "Mila", "Aïn Defla", "Naâma", "Aïn Témouchent",
+  "Ghardaïa", "Relizane", "Timimoun", "Bordj Badji Mokhtar", "Ouled Djellal", "Béni Abbès",
+  "In Salah", "In Guezzam", "Touggourt", "Djanet", "El M'Ghair", "El Menia",
+  "Aflou", "Barika", "Ksar Chellala", "Messaad", "Aïn Oussera", "Boussaâda",
+  "El Abiodh Sidi Cheikh", "El Kantara", "Bir El Ater", "Ksar El Boukhari", "El Aricha"
 ];
 
 const orderSchema = z.object({
-  fullName: z.string().min(3, "Le nom complet doit contenir au moins 3 caractères"),
-  wilaya: z.string().min(1, "Veuillez sélectionner une wilaya"),
-  commune: z.string().min(2, "La commune est requise"),
-  address: z.string().min(10, "L'adresse doit être détaillée"),
-  phone: z.string().regex(/^(0|\+213)[5-7][0-9]{8}$/, "Numéro de téléphone invalide"),
-  email: z.string().email("Email invalide").optional().or(z.literal("")),
-  deliveryMethod: z.string().min(1, "Veuillez sélectionner une méthode de livraison"),
+  fullName: z.string().min(3, "الاسم الكامل يجب أن يحتوي على 3 أحرف على الأقل"),
+  wilaya: z.string().min(1, "الرجاء اختيار الولاية"),
+  commune: z.string().min(2, "البلدية مطلوبة"),
+  phone: z.string().regex(/^(0|\+213)[5-7][0-9]{8}$/, "رقم الهاتف غير صحيح"),
+  email: z.string().email("البريد الإلكتروني غير صحيح").optional().or(z.literal("")),
+  deliveryMethod: z.string().min(1, "الرجاء اختيار طريقة التوصيل"),
 });
+
+// ── Inline styles ──────────────────────────────────────────────────────────────
+const inputStyle = (hasError?: boolean) => ({
+  width: "100%",
+  padding: "11px 14px",
+  borderRadius: "9px",
+  border: `1.5px solid ${hasError ? "#c94f4f" : "#e8e6e0"}`,
+  background: "#fff",
+  fontSize: "14px",
+  color: "#1a1916",
+  outline: "none",
+  transition: "border-color 0.15s",
+  fontFamily: "inherit",
+});
+
+const labelStyle = {
+  fontSize: "12.5px",
+  fontWeight: 500,
+  color: "#4a4845",
+  display: "block",
+  marginBottom: "6px",
+};
+
+const errorStyle = {
+  fontSize: "11px",
+  color: "#c94f4f",
+  marginTop: "4px",
+};
 
 const Checkout = () => {
   const { items, getTotalPrice, clearCart } = useCart();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-
-  const [formData, setFormData] = useState({
-    fullName: "",
-    wilaya: "",
-    commune: "",
-    address: "",
-    phone: "",
-    email: "",
-    deliveryMethod: "",
-  });
-
+  const [deliveryPrice, setDeliveryPrice] = useState<number>(0);
+  const [loadingDelivery, setLoadingDelivery] = useState(false);
+  const [formData, setFormData] = useState({ fullName: "", wilaya: "", commune: "", phone: "", email: "", deliveryMethod: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (formData.wilaya) fetchDeliveryPrice(formData.wilaya);
+    else setDeliveryPrice(0);
+  }, [formData.wilaya]);
+
+  const fetchDeliveryPrice = async (wilaya: string) => {
+    setLoadingDelivery(true);
+    try {
+      const { data } = await supabase.from("delivery_prices").select("price").eq("wilaya", wilaya).single();
+      setDeliveryPrice(data?.price || 0);
+    } catch { setDeliveryPrice(0); }
+    finally { setLoadingDelivery(false); }
+  };
+
+  const totalWithDelivery = getTotalPrice() + deliveryPrice;
+
+  const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setFormData(prev => ({ ...prev, [field]: e.target.value }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrors({});
-
     try {
-      // Validate form
       orderSchema.parse(formData);
-
-      if (items.length === 0) {
-        toast.error("Votre panier est vide");
-        return;
-      }
-
+      if (!items.length) { toast.error("سلة التسوق فارغة"); return; }
       setLoading(true);
-
-      // Create orders for each item
-      const orderPromises = items.map((item) =>
-        supabase.from("orders").insert({
-          full_name: formData.fullName,
-          wilaya: formData.wilaya,
-          commune: formData.commune,
-          address: formData.address,
-          phone: formData.phone,
-          email: formData.email || null,
-          shoe_size: item.size,
-          shoe_color: item.color,
-          payment_method: "Cash on Delivery",
-          delivery_method: formData.deliveryMethod,
-          product_id: item.productId,
-          quantity: item.quantity,
-        })
-      );
-
-      await Promise.all(orderPromises);
-
-      toast.success("Commande passée avec succès!");
+      await Promise.all(items.map(item => supabase.from("orders").insert({
+        full_name: formData.fullName,
+        wilaya: formData.wilaya,
+        commune: formData.commune,
+        address: `${formData.commune}, ${formData.wilaya}`,  // ← ADD THIS
+        phone: formData.phone,
+        email: formData.email || null,
+        shoe_size: item.size,
+        shoe_color: item.color,
+        payment_method: "Cash on Delivery",
+        delivery_method: formData.deliveryMethod,
+        product_id: item.productId,
+        quantity: item.quantity,
+        delivery_price: deliveryPrice,
+      })));
+      toast.success("تم تأكيد الطلب بنجاح!");
       clearCart();
       navigate("/order-success");
     } catch (error) {
       if (error instanceof z.ZodError) {
-        const fieldErrors: Record<string, string> = {};
-        error.errors.forEach((err) => {
-          if (err.path[0]) {
-            fieldErrors[err.path[0] as string] = err.message;
-          }
-        });
-        setErrors(fieldErrors);
-        toast.error("Veuillez corriger les erreurs du formulaire");
+        const fe: Record<string, string> = {};
+        error.errors.forEach(err => { if (err.path[0]) fe[err.path[0] as string] = err.message; });
+        setErrors(fe);
+        toast.error("يرجى تصحيح الأخطاء");
       } else {
-        console.error("Error placing order:", error);
-        toast.error("Erreur lors de la commande");
+        toast.error("حدث خطأ أثناء تقديم الطلب");
       }
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  if (items.length === 0) {
-    navigate("/");
-    return null;
-  }
+  if (!items.length) { navigate("/"); return null; }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-8 animate-fade-in">Finaliser la commande</h1>
+    <div style={{ background: "#f7f6f3", minHeight: "100vh" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&display=swap');
+        input:focus, select:focus { border-color: #c8a96e !important; box-shadow: 0 0 0 3px rgba(200,169,110,0.15); }
+        @media (max-width: 900px) { .checkout-grid { grid-template-columns: 1fr !important; } }
+        @media (max-width: 600px) { .form-row-2 { grid-template-columns: 1fr !important; } }
+      `}</style>
+      <div style={{ maxWidth: "1000px", margin: "0 auto", padding: "36px 20px" }}>
+        <h1 style={{ fontFamily: "'Syne', Georgia, serif", fontSize: "26px", fontWeight: 800, color: "#1a1916", marginBottom: "4px" }}>
+          تأكيد الطلب
+        </h1>
+        <p style={{ color: "#888680", fontSize: "13px", marginBottom: "28px" }}>Finaliser la commande</p>
 
         <form onSubmit={handleSubmit}>
-          <div className="grid lg:grid-cols-3 gap-8">
-            {/* Order Form */}
-            <div className="lg:col-span-2 space-y-6">
-              <Card className="p-6 animate-fade-in">
-                <h2 className="text-xl font-bold mb-4">Informations de livraison</h2>
+          <div className="checkout-grid" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: "24px", alignItems: "start" }}>
+            {/* Form card */}
+            <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e8e6e0", padding: "28px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "24px" }}>
+                <span style={{ fontSize: "20px" }}>📍</span>
+                <div>
+                  <div style={{ fontFamily: "'Syne', Georgia, serif", fontSize: "15px", fontWeight: 700 }}>معلومات التوصيل</div>
+                  <div style={{ fontSize: "12px", color: "#888680" }}>Informations de livraison</div>
+                </div>
+              </div>
 
-                <div className="space-y-4">
+              <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+                {/* Full name */}
+                <div>
+                  <label style={labelStyle}>اللقب والاسم <span style={{ color: "#888680", fontWeight: 400 }}>(Nom complet)</span></label>
+                  <input style={inputStyle(!!errors.fullName)} value={formData.fullName} onChange={set("fullName")} placeholder="مثال: أحمد بن محمد" />
+                  {errors.fullName && <div style={errorStyle}>{errors.fullName}</div>}
+                </div>
+
+                {/* Wilaya + Commune */}
+                <div className="form-row-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
                   <div>
-                    <Label htmlFor="fullName">اللقب و الاسم (Nom complet)</Label>
-                    <Input
-                      id="fullName"
-                      value={formData.fullName}
-                      onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                      className={errors.fullName ? "border-destructive" : ""}
-                    />
-                    {errors.fullName && (
-                      <p className="text-sm text-destructive mt-1">{errors.fullName}</p>
-                    )}
+                    <label style={labelStyle}>الولاية <span style={{ color: "#888680", fontWeight: 400 }}>(Wilaya)</span></label>
+                    <select style={{ ...inputStyle(!!errors.wilaya), appearance: "none", cursor: "pointer" }} value={formData.wilaya} onChange={set("wilaya")}>
+                      <option value="">اختر الولاية</option>
+                      {wilayas.map(w => <option key={w} value={w}>{w}</option>)}
+                    </select>
+                    {errors.wilaya && <div style={errorStyle}>{errors.wilaya}</div>}
                   </div>
-
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="wilaya">Wilaya</Label>
-                      <Select
-                        value={formData.wilaya}
-                        onValueChange={(value) => setFormData({ ...formData, wilaya: value })}
-                      >
-                        <SelectTrigger className={errors.wilaya ? "border-destructive" : ""}>
-                          <SelectValue placeholder="Sélectionnez une wilaya" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {wilayas.map((wilaya) => (
-                            <SelectItem key={wilaya} value={wilaya}>
-                              {wilaya}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {errors.wilaya && (
-                        <p className="text-sm text-destructive mt-1">{errors.wilaya}</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <Label htmlFor="commune">البلدية (Commune)</Label>
-                      <Input
-                        id="commune"
-                        value={formData.commune}
-                        onChange={(e) => setFormData({ ...formData, commune: e.target.value })}
-                        className={errors.commune ? "border-destructive" : ""}
-                      />
-                      {errors.commune && (
-                        <p className="text-sm text-destructive mt-1">{errors.commune}</p>
-                      )}
-                    </div>
-                  </div>
-
                   <div>
-                    <Label htmlFor="address">Adresse détaillée</Label>
-                    <Input
-                      id="address"
-                      value={formData.address}
-                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                      placeholder="Rue, bâtiment, appartement..."
-                      className={errors.address ? "border-destructive" : ""}
-                    />
-                    {errors.address && (
-                      <p className="text-sm text-destructive mt-1">{errors.address}</p>
-                    )}
-                  </div>
-
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="phone">Téléphone (WhatsApp)</Label>
-                      <Input
-                        id="phone"
-                        type="tel"
-                        value={formData.phone}
-                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                        placeholder="0555123456"
-                        className={errors.phone ? "border-destructive" : ""}
-                      />
-                      {errors.phone && (
-                        <p className="text-sm text-destructive mt-1">{errors.phone}</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <Label htmlFor="email">Email (optionnel)</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={formData.email}
-                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                        className={errors.email ? "border-destructive" : ""}
-                      />
-                      {errors.email && (
-                        <p className="text-sm text-destructive mt-1">{errors.email}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="deliveryMethod">Méthode de livraison</Label>
-                    <Select
-                      value={formData.deliveryMethod}
-                      onValueChange={(value) => setFormData({ ...formData, deliveryMethod: value })}
-                    >
-                      <SelectTrigger className={errors.deliveryMethod ? "border-destructive" : ""}>
-                        <SelectValue placeholder="Sélectionnez une méthode" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="domicile">Livraison à domicile</SelectItem>
-                        <SelectItem value="stopdesk">Stop Desk</SelectItem>
-                        <SelectItem value="yalidine">Yalidine</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {errors.deliveryMethod && (
-                      <p className="text-sm text-destructive mt-1">{errors.deliveryMethod}</p>
-                    )}
-                  </div>
-
-                  <div className="bg-secondary p-4 rounded-lg">
-                    <p className="font-semibold mb-2">Mode de paiement:</p>
-                    <p className="text-sm">الدفع عند الاستلام (Cash on Delivery)</p>
+                    <label style={labelStyle}>البلدية <span style={{ color: "#888680", fontWeight: 400 }}>(Commune)</span></label>
+                    <input style={inputStyle(!!errors.commune)} value={formData.commune} onChange={set("commune")} placeholder="مثال: باب الزوار" />
+                    {errors.commune && <div style={errorStyle}>{errors.commune}</div>}
                   </div>
                 </div>
-              </Card>
+
+                {/* Phone + Email */}
+                <div className="form-row-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+                  <div>
+                    <label style={labelStyle}>الهاتف (WhatsApp)</label>
+                    <input style={inputStyle(!!errors.phone)} type="tel" value={formData.phone} onChange={set("phone")} placeholder="0555 123 456" />
+                    {errors.phone && <div style={errorStyle}>{errors.phone}</div>}
+                  </div>
+                  <div>
+                    <label style={labelStyle}>البريد الإلكتروني <span style={{ color: "#888680", fontWeight: 400 }}>(optionnel)</span></label>
+                    <input style={inputStyle(!!errors.email)} type="email" value={formData.email} onChange={set("email")} placeholder="exemple@email.com" />
+                    {errors.email && <div style={errorStyle}>{errors.email}</div>}
+                  </div>
+                </div>
+
+                {/* Delivery method */}
+                <div>
+                  <label style={labelStyle}>طريقة التوصيل <span style={{ color: "#888680", fontWeight: 400 }}>(Méthode de livraison)</span></label>
+                  <select style={{ ...inputStyle(!!errors.deliveryMethod), appearance: "none", cursor: "pointer" }} value={formData.deliveryMethod} onChange={set("deliveryMethod")}>
+                    <option value="">اختر طريقة التوصيل</option>
+                    <option value="domicile">🏠 التوصيل للمنزل (Domicile)</option>
+                    <option value="stopdesk">📦 Stop Desk</option>
+                    <option value="yalidine">🚚 Yalidine</option>
+                  </select>
+                  {errors.deliveryMethod && <div style={errorStyle}>{errors.deliveryMethod}</div>}
+                </div>
+
+                {/* Payment info */}
+                <div style={{ background: "#fdf6ec", border: "1px solid #f0ddb5", borderRadius: "10px", padding: "14px 16px", display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                  <span style={{ fontSize: "24px" }}>💵</span>
+                  <div>
+                    <div style={{ fontWeight: 600, color: "#a07030", fontSize: "13px" }}>الدفع عند الاستلام</div>
+                    <div style={{ fontSize: "12px", color: "#b8883a", marginTop: "2px" }}>Cash on Delivery — تدفع عند وصول طلبك</div>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Order Summary */}
-            <div className="lg:col-span-1">
-              <Card className="p-6 sticky top-24 animate-fade-in">
-                <h2 className="text-xl font-bold mb-4">Récapitulatif</h2>
+            {/* Summary */}
+            <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e8e6e0", padding: "22px", position: "sticky", top: "80px" }}>
+              <h2 style={{ fontFamily: "'Syne', Georgia, serif", fontSize: "16px", fontWeight: 700, marginBottom: "16px" }}>ملخص الطلب</h2>
 
-                <div className="space-y-3 mb-4">
-                  {items.map((item) => (
-                    <div key={item.id} className="flex justify-between text-sm">
-                      <span>
-                        {item.name} (x{item.quantity})
-                      </span>
-                      <span>{(item.price * item.quantity).toFixed(2)} DA</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="border-t pt-4 mb-6">
-                  <div className="flex justify-between text-lg font-bold">
-                    <span>Total</span>
-                    <span className="text-accent">{getTotalPrice().toFixed(2)} DA</span>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "16px" }}>
+                {items.map(item => (
+                  <div key={item.id} style={{ display: "flex", justifyContent: "space-between", fontSize: "13px" }}>
+                    <span style={{ color: "#4a4845" }}>{item.name} (×{item.quantity})</span>
+                    <span style={{ fontWeight: 500 }}>{(item.price * item.quantity).toLocaleString()} DA</span>
                   </div>
-                </div>
+                ))}
+              </div>
 
-                <Button
-                  type="submit"
-                  className="w-full bg-accent hover:bg-accent/90 text-accent-foreground"
-                  size="lg"
-                  disabled={loading}
-                >
-                  {loading ? "Traitement..." : "Confirmer la commande"}
-                </Button>
-              </Card>
+              <div style={{ borderTop: "1px solid #e8e6e0", paddingTop: "12px", marginBottom: "16px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px" }}>
+                  <span style={{ color: "#888680" }}>المجموع الفرعي</span>
+                  <span>{getTotalPrice().toLocaleString()} DA</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px" }}>
+                  <span style={{ color: "#888680" }}>
+                    التوصيل
+                    {formData.wilaya && <span style={{ display: "block", fontSize: "11px" }}>({formData.wilaya})</span>}
+                  </span>
+                  <span style={{ color: deliveryPrice === 0 ? "#2d6a4f" : "#1a1916", fontWeight: 500 }}>
+                    {loadingDelivery ? "..." : deliveryPrice === 0 ? "مجاني" : `${deliveryPrice.toLocaleString()} DA`}
+                  </span>
+                </div>
+                {!formData.wilaya && (
+                  <div style={{ fontSize: "11px", color: "#aaa", fontStyle: "italic" }}>اختر الولاية لمعرفة رسوم التوصيل</div>
+                )}
+              </div>
+
+              <div style={{ borderTop: "1px solid #e8e6e0", paddingTop: "14px", marginBottom: "20px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}>
+                  <span>المجموع الكلي</span>
+                  <span style={{ color: "#c8a96e", fontSize: "18px" }}>{totalWithDelivery.toLocaleString()} DA</span>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  width: "100%", background: loading ? "#888" : "#0f0f0e", color: "#fff",
+                  border: "none", padding: "14px", borderRadius: "10px",
+                  fontSize: "14px", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer",
+                  transition: "background 0.15s",
+                }}
+                onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLElement).style.background = "#2a2a28"; }}
+                onMouseLeave={e => { if (!loading) (e.currentTarget as HTMLElement).style.background = "#0f0f0e"; }}
+              >
+                {loading ? "جاري المعالجة..." : "✅ تأكيد الطلب"}
+              </button>
             </div>
           </div>
         </form>
