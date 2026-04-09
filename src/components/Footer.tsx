@@ -13,12 +13,11 @@ const Footer = () => {
             <div className="space-y-2">
               <p className="text-gray-400">Algerie—Batna</p>
               <p className="text-gray-400">info@email.com</p>
-              <p className="text-xl sm:text-2xl font-bold mt-3 lg:mt-4">0770844373</p>
               <p className="text-xl sm:text-2xl font-bold">0663660834</p>
             </div>
           </div>
 
-          
+
 
           {/* Contact */}
           <div className="text-center md:text-left">
@@ -32,7 +31,10 @@ const Footer = () => {
                 <Mail className="h-4 w-4 lg:h-5 lg:w-5" />
               </button>
 
-              <button className="w-10 h-10 lg:w-12 lg:h-12 bg-gray-800 hover:bg-gray-700 rounded-full flex items-center justify-center transition-colors">
+              <button
+                onClick={() => window.open("https://www.instagram.com/myshoes_05/", "_blank")}
+                className="w-10 h-10 lg:w-12 lg:h-12 bg-gray-800 hover:bg-gray-700 rounded-full flex items-center justify-center transition-colors"
+              >
                 <Instagram className="h-4 w-4 lg:h-5 lg:w-5" />
               </button>
             </div>
