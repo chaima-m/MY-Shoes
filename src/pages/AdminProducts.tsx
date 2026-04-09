@@ -50,7 +50,7 @@ interface Product {
   category: string;
   price: number;
   discount: number;
-  stock: number; // kept for backward compat / dashboard low-stock
+  stock: number;
   sizes: number[];
   colors: string[];
   images: string[];
@@ -59,12 +59,60 @@ interface Product {
 
 const variantKey = (color: string, size: number) => `${color}__${size}`;
 
+// ── HEIC → JPEG converter ─────────────────────────────────────────────────────
+// Uses heic2any npm package (install with: npm install heic2any)
+// Falls back to a canvas-based conversion if heic2any is unavailable.
+
+const isHeic = (file: File): boolean =>
+  /\.(heic|heif)$/i.test(file.name) || file.type === "image/heic" || file.type === "image/heif";
+
+async function convertHeicToJpeg(file: File): Promise<File> {
+  const baseName = file.name.replace(/\.(heic|heif)$/i, "");
+
+  try {
+    // Try heic2any first (npm install heic2any)
+    const heic2any = (await import("heic2any")).default;
+    const result = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 });
+    const blob = Array.isArray(result) ? result[0] : result;
+    return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
+  } catch {
+    // Fallback: draw the image via a canvas and export as JPEG.
+    // Works for HEIC files that the browser can already decode (Safari, iOS).
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { reject(new Error("Canvas not supported")); return; }
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob(
+          (blob) => {
+            URL.revokeObjectURL(url);
+            if (!blob) { reject(new Error("Canvas toBlob failed")); return; }
+            resolve(new File([blob], `${baseName}.jpg`, { type: "image/jpeg" }));
+          },
+          "image/jpeg",
+          0.85
+        );
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Image load failed")); };
+      img.src = url;
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const AdminProducts = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
 
   // ── form state ────────────────────────────────────────────
   const [formData, setFormData] = useState({
@@ -125,31 +173,60 @@ const AdminProducts = () => {
   const computeTotalStock = (): number =>
     Object.values(variantStock).reduce((s, v) => s + (parseInt(v) || 0), 0);
 
-  // ── image upload ──────────────────────────────────────────
+  // ── image upload with HEIC support ────────────────────────
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     setUploading(true);
+    setUploadProgress("");
     const urls: string[] = [];
+
     try {
-      for (const file of Array.from(files)) {
-        const ext = file.name.split(".").pop()?.toLowerCase();
+      const fileArray = Array.from(files);
+      for (let i = 0; i < fileArray.length; i++) {
+        let file = fileArray[i];
+        setUploadProgress(`${i + 1}/${fileArray.length} — ${file.name}`);
+
+        // Convert HEIC/HEIF to JPEG before uploading
+        if (isHeic(file)) {
+          setUploadProgress(`تحويل HEIC... (${i + 1}/${fileArray.length})`);
+          try {
+            file = await convertHeicToJpeg(file);
+          } catch (convErr) {
+            console.error("HEIC conversion failed:", convErr);
+            toast.error(`تعذّر تحويل ${fileArray[i].name} — يرجى تحويلها يدوياً إلى JPG`);
+            continue;
+          }
+        }
+
+        const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
         const fileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
+
         const { error: upErr } = await supabase.storage
           .from("product-images")
-          .upload(fileName, file);
+          .upload(fileName, file, { contentType: file.type || "image/jpeg" });
+
         if (upErr) throw upErr;
+
         const { data: { publicUrl } } = supabase.storage
           .from("product-images")
           .getPublicUrl(fileName);
+
         urls.push(publicUrl);
       }
-      setFormData((f) => ({ ...f, images: [...f.images, ...urls] }));
-      toast.success(`تم رفع ${urls.length} صورة`);
-    } catch {
+
+      if (urls.length > 0) {
+        setFormData((f) => ({ ...f, images: [...f.images, ...urls] }));
+        toast.success(`تم رفع ${urls.length} صورة`);
+      }
+    } catch (err) {
+      console.error(err);
       toast.error("خطأ في رفع الصور");
     } finally {
       setUploading(false);
+      setUploadProgress("");
+      // Reset input so same file can be re-selected
+      e.target.value = "";
     }
   };
 
@@ -165,6 +242,7 @@ const AdminProducts = () => {
       return;
     }
 
+    // Total stock is always computed from variant grid (source of truth)
     const totalStock = computeTotalStock();
 
     const productData = {
@@ -198,7 +276,7 @@ const AdminProducts = () => {
         productId = data.id;
       }
 
-      // Upsert variants
+      // Build and upsert variant rows for selected colors × sizes only
       const variantRows: Omit<Variant, "id">[] = [];
       for (const color of formData.colors) {
         for (const size of formData.sizes) {
@@ -218,29 +296,23 @@ const AdminProducts = () => {
         if (varErr) throw varErr;
       }
 
-      // If editing: delete variants for removed colors/sizes
+      // Delete orphaned variants (colors/sizes removed from product)
       if (editingProduct) {
-        await supabase
-          .from("product_variants")
-          .delete()
-          .eq("product_id", editingProduct.id)
-          .not("color", "in", `(${formData.colors.map((c) => `"${c}"`).join(",")})`)
-          ;
-        // simpler: just delete all and re-insert
-        // Already handled by upsert above; orphan cleanup:
-        for (const color of availableColors.filter((c) => !formData.colors.includes(c))) {
+        // Delete variants whose color is no longer in the list
+        if (formData.colors.length > 0) {
           await supabase
             .from("product_variants")
             .delete()
             .eq("product_id", editingProduct.id)
-            .eq("color", color);
+            .not("color", "in", `(${formData.colors.map((c) => `"${c}"`).join(",")})`);
         }
-        for (const size of availableSizes.filter((s) => !formData.sizes.includes(s))) {
+        // Delete variants whose size is no longer in the list
+        if (formData.sizes.length > 0) {
           await supabase
             .from("product_variants")
             .delete()
             .eq("product_id", editingProduct.id)
-            .eq("size", size);
+            .not("size", "in", `(${formData.sizes.join(",")})`);
         }
       }
 
@@ -289,7 +361,8 @@ const AdminProducts = () => {
       const { error } = await supabase.from("products").delete().eq("id", productId);
       if (error) throw error;
       toast.success("تم حذف المنتج");
-      fetchProducts();
+      // Optimistic update
+      setProducts(prev => prev.filter(p => p.id !== productId));
     } catch {
       toast.error("خطأ في حذف المنتج");
     }
@@ -303,15 +376,6 @@ const AdminProducts = () => {
       sizes: [], colors: [], images: [], description: "",
     });
     setVariantStock({});
-  };
-
-  // ── stock grid summary for card ───────────────────────────
-  const getTotalVariantStock = async (productId: string): Promise<number> => {
-    const { data } = await supabase
-      .from("product_variants")
-      .select("stock")
-      .eq("product_id", productId);
-    return (data || []).reduce((s: number, v: { stock: number }) => s + v.stock, 0);
   };
 
   if (loading) {
@@ -418,7 +482,7 @@ const AdminProducts = () => {
                       المخزون حسب اللون والمقاس
                     </Label>
                     <p className="text-xs text-gray-400 mb-3 mt-1">
-                      أدخل عدد القطع المتوفرة لكل مجموعة (لون × مقاس)
+                      أدخل عدد القطع المتوفرة لكل مجموعة (لون × مقاس). المجموع الكلي يُحسب تلقائياً.
                     </p>
 
                     <div className="overflow-x-auto rounded-xl border border-gray-100">
@@ -460,11 +524,10 @@ const AdminProducts = () => {
                                   </td>
                                 ))}
                                 <td className="px-3 py-2 text-center">
-                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                                    rowTotal === 0 ? "bg-red-100 text-red-600" :
+                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${rowTotal === 0 ? "bg-red-100 text-red-600" :
                                     rowTotal < 5 ? "bg-orange-100 text-orange-600" :
-                                    "bg-green-100 text-green-700"
-                                  }`}>
+                                      "bg-green-100 text-green-700"
+                                    }`}>
                                     {rowTotal}
                                   </span>
                                 </td>
@@ -495,24 +558,40 @@ const AdminProducts = () => {
                       </table>
                     </div>
 
-                    <p className="text-xs text-gray-400 mt-2">
-                      المخزون الإجمالي: <strong className="text-accent">{computeTotalStock()}</strong> قطعة
-                    </p>
+                    <div className="flex items-center justify-between mt-3 p-3 rounded-lg bg-gray-50 border">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">المخزون الإجمالي (محسوب تلقائياً):</span>
+                        <strong className="text-sm text-accent">
+                          {computeTotalStock()} قطعة
+                        </strong>
+                      </div>
+                      <span className="text-xs text-gray-400">يتم تحديثه تلقائياً عند حفظ المنتج</span>
+                    </div>
                   </div>
                 )}
 
                 {/* Images */}
                 <div>
                   <Label>صور المنتج</Label>
-                  <div className="mt-2">
+                  <p className="text-xs text-gray-400 mt-0.5 mb-2">يدعم PNG, JPG, WEBP, HEIC/HEIF — يتم تحويل HEIC تلقائياً</p>
+                  <div className="mt-1">
                     <label className="cursor-pointer">
-                      <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-accent transition-colors">
-                        <Upload className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-                        <p className="text-sm text-gray-500">{uploading ? "جاري الرفع..." : "اضغط لرفع الصور"}</p>
-                        <p className="text-xs text-gray-400 mt-1">PNG, JPG, WEBP</p>
+                      <div className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors ${uploading ? "border-accent bg-accent/5" : "border-gray-200 hover:border-accent"}`}>
+                        <Upload className={`h-8 w-8 mx-auto mb-2 ${uploading ? "text-accent animate-bounce" : "text-gray-400"}`} />
+                        <p className="text-sm text-gray-500">
+                          {uploading
+                            ? uploadProgress || "جاري الرفع..."
+                            : "اضغط لرفع الصور (PNG, JPG, HEIC...)"}
+                        </p>
                       </div>
-                      <input type="file" multiple accept="image/*" onChange={handleImageUpload}
-                        className="hidden" disabled={uploading} />
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*,.heic,.heif"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                        disabled={uploading}
+                      />
                     </label>
                     {formData.images.length > 0 && (
                       <div className="grid grid-cols-4 gap-2 mt-3">
@@ -586,10 +665,9 @@ const AdminProducts = () => {
                         </span>
                       )}
                     </div>
-                    <span className={`text-xs font-medium ${
-                      product.stock === 0 ? "text-red-500" :
+                    <span className={`text-xs font-medium ${product.stock === 0 ? "text-red-500" :
                       product.stock < 10 ? "text-orange-500" : "text-green-600"
-                    }`}>
+                      }`}>
                       {product.stock} قطعة
                     </span>
                   </div>

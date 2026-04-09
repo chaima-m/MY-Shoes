@@ -1,4 +1,4 @@
-// src/pages/AdminOrders.tsx — NEW FILE, create it in src/pages/
+// src/pages/AdminOrders.tsx
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,28 +7,20 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Search, Eye, Phone, MapPin, Package } from "lucide-react";
+import { Search, Eye, Phone, MapPin, Package, Trash2 } from "lucide-react";
 import AdminLayout from "@/components/AdminLayout";
 
 interface Order {
@@ -49,6 +41,12 @@ interface Order {
   products: { name: string; price: number; images: string[] };
 }
 
+const DELIVERY_METHOD_LABELS: Record<string, string> = {
+  domicile: "🏠 التوصيل للمنزل",
+  stopdesk: "📦 Stop Desk",
+  yalidine: "🚚 Yalidine",
+};
+
 const statusOptions = [
   { value: "all", label: "كل الطلبات", labelFr: "Tous" },
   { value: "pending", label: "قيد الانتظار", labelFr: "En attente" },
@@ -64,14 +62,11 @@ const AdminOrders = () => {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [deleteOrderId, setDeleteOrderId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    fetchOrders();
-  }, []);
-
-  useEffect(() => {
-    filterOrders();
-  }, [orders, searchQuery, statusFilter]);
+  useEffect(() => { fetchOrders(); }, []);
+  useEffect(() => { filterOrders(); }, [orders, searchQuery, statusFilter]);
 
   const fetchOrders = async () => {
     try {
@@ -79,7 +74,6 @@ const AdminOrders = () => {
         .from("orders")
         .select(`*, products(name, price, images)`)
         .order("created_at", { ascending: false });
-
       if (error) throw error;
       setOrders(data || []);
     } catch (error) {
@@ -92,11 +86,7 @@ const AdminOrders = () => {
 
   const filterOrders = () => {
     let filtered = [...orders];
-
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((o) => o.status === statusFilter);
-    }
-
+    if (statusFilter !== "all") filtered = filtered.filter((o) => o.status === statusFilter);
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(
@@ -107,28 +97,45 @@ const AdminOrders = () => {
           o.products?.name?.toLowerCase().includes(q)
       );
     }
-
     setFilteredOrders(filtered);
   };
 
   const updateOrderStatus = async (orderId: string, status: string) => {
     try {
-      const { error } = await supabase
-        .from("orders")
-        .update({ status })
-        .eq("id", orderId);
-
+      const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
       if (error) throw error;
-
       toast.success("تم تحديث حالة الطلب");
-      fetchOrders();
-      // Update selected order if open
-      if (selectedOrder?.id === orderId) {
-        setSelectedOrder({ ...selectedOrder, status });
-      }
+      // Optimistic update — no full re-fetch needed
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
+      if (selectedOrder?.id === orderId) setSelectedOrder(prev => prev ? { ...prev, status } : null);
     } catch (error) {
       console.error("Error updating order:", error);
       toast.error("خطأ في تحديث الطلب");
+    }
+  };
+
+  const handleDeleteOrder = async () => {
+    if (!deleteOrderId) return;
+    setDeleting(true);
+    try {
+      const { error } = await supabase.from("orders").delete().eq("id", deleteOrderId);
+      if (error) throw error;
+
+      // ── Optimistic: remove from local state immediately ──────────────
+      setOrders(prev => prev.filter(o => o.id !== deleteOrderId));
+
+      toast.success("تم حذف الطلب بنجاح");
+      setDeleteOrderId(null);
+
+      if (selectedOrder?.id === deleteOrderId) {
+        setDetailOpen(false);
+        setSelectedOrder(null);
+      }
+    } catch (error) {
+      console.error("Error deleting order:", error);
+      toast.error("خطأ في حذف الطلب");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -153,7 +160,6 @@ const AdminOrders = () => {
   return (
     <AdminLayout>
       <div className="space-y-6">
-        {/* Header */}
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">إدارة الطلبات</h1>
           <p className="text-gray-500 mt-1">Gestion des commandes</p>
@@ -245,7 +251,7 @@ const AdminOrders = () => {
                       </TableCell>
                       <TableCell>{statusBadge(order.status)}</TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
                           <Select
                             value={order.status}
                             onValueChange={(value) => updateOrderStatus(order.id, value)}
@@ -263,12 +269,18 @@ const AdminOrders = () => {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            onClick={() => {
-                              setSelectedOrder(order);
-                              setDetailOpen(true);
-                            }}
+                            onClick={() => { setSelectedOrder(order); setDetailOpen(true); }}
                           >
                             <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50"
+                            title="حذف الطلب"
+                            onClick={() => setDeleteOrderId(order.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </TableCell>
@@ -318,15 +330,11 @@ const AdminOrders = () => {
                 <div className="flex items-center gap-2 text-sm">
                   <Phone className="h-4 w-4 text-gray-400" />
                   <span>{selectedOrder.phone}</span>
-                  {selectedOrder.email && (
-                    <span className="text-gray-400">· {selectedOrder.email}</span>
-                  )}
+                  {selectedOrder.email && <span className="text-gray-400">· {selectedOrder.email}</span>}
                 </div>
                 <div className="flex items-center gap-2 text-sm">
                   <MapPin className="h-4 w-4 text-gray-400" />
-                  <span>
-                    {selectedOrder.commune}, {selectedOrder.wilaya}
-                  </span>
+                  <span>{selectedOrder.commune}, {selectedOrder.wilaya}</span>
                 </div>
               </div>
 
@@ -334,7 +342,7 @@ const AdminOrders = () => {
               <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-500">طريقة التوصيل</span>
-                  <span>{selectedOrder.delivery_method}</span>
+                  <span>{DELIVERY_METHOD_LABELS[selectedOrder.delivery_method] || selectedOrder.delivery_method}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">رسوم التوصيل</span>
@@ -384,10 +392,47 @@ const AdminOrders = () => {
                   </Button>
                 </div>
               </div>
+
+              {/* Delete button inside detail dialog */}
+              <Button
+                variant="destructive"
+                size="sm"
+                className="w-full gap-2 mt-1"
+                onClick={() => { setDeleteOrderId(selectedOrder.id); setDetailOpen(false); }}
+              >
+                <Trash2 className="h-4 w-4" />
+                حذف هذا الطلب
+              </Button>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteOrderId} onOpenChange={(open) => { if (!open) setDeleteOrderId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>تأكيد حذف الطلب</AlertDialogTitle>
+            <AlertDialogDescription>
+              هل أنت متأكد أنك تريد حذف هذا الطلب؟ هذا الإجراء لا يمكن التراجع عنه.
+              <br />
+              <span className="text-sm text-gray-400">
+                Êtes-vous sûr de vouloir supprimer cette commande ? Cette action est irréversible.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>إلغاء</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteOrder}
+              disabled={deleting}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deleting ? "جاري الحذف..." : "حذف الطلب"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AdminLayout>
   );
 };

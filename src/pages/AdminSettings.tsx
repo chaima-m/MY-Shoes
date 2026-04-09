@@ -1,4 +1,4 @@
-// src/pages/AdminSettings.tsx — NEW FILE, create it in src/pages/
+// src/pages/AdminSettings.tsx
 
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -24,11 +24,16 @@ const AdminSettings = () => {
     if (!emailData.newEmail) return;
     setLoadingEmail(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        email: emailData.newEmail,
-      });
+      // ── FIX: pass the production URL so the confirmation link works ──
+      // Supabase will replace the {token} and redirect back to this URL.
+      const { error } = await supabase.auth.updateUser(
+        { email: emailData.newEmail },
+        { emailRedirectTo: `${window.location.origin}/admin/dashboard` }
+      );
       if (error) throw error;
-      toast.success("تم إرسال رابط التأكيد إلى البريد الجديد");
+      toast.success(
+        "تم إرسال رابط التأكيد إلى البريد الجديد — انقر على الرابط لتأكيد التغيير"
+      );
       setEmailData({ newEmail: "" });
     } catch (error: any) {
       toast.error(error.message || "خطأ في تحديث البريد الإلكتروني");
@@ -77,6 +82,13 @@ const AdminSettings = () => {
             <Mail className="h-5 w-5 text-accent" />
             <h2 className="text-lg font-bold">تغيير البريد الإلكتروني</h2>
           </div>
+
+          {/* Instructions banner */}
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-700">
+            <strong>كيف يعمل:</strong> بعد إدخال البريد الجديد والضغط على "تحديث"، سيرسل
+            Supabase رابط تأكيد إلى البريد الجديد. افتح الرابط من نفس المتصفح لإتمام التغيير.
+          </div>
+
           <form onSubmit={handleUpdateEmail} className="space-y-4">
             <div>
               <Label htmlFor="newEmail">البريد الإلكتروني الجديد</Label>
@@ -90,7 +102,7 @@ const AdminSettings = () => {
                 required
               />
               <p className="text-xs text-gray-400 mt-1">
-                سيتم إرسال رابط تأكيد إلى البريد الجديد قبل التغيير.
+                ستصلك رسالة تأكيد — انقر على الرابط فيها لتفعيل البريد الجديد.
               </p>
             </div>
             <Button

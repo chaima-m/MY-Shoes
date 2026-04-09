@@ -422,7 +422,7 @@ const Home = () => {
       <section className="py-16 lg:py-24 bg-gray-900 text-white text-center relative overflow-hidden">
         <div className="absolute inset-0 opacity-20">
           <img
-            src="src/assets/website pictures/banner.jpg"
+            src="/banner.jpg"
             alt="Arrière-plan"
             className="w-full h-full object-cover"
           />
