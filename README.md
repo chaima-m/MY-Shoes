@@ -139,7 +139,7 @@ The project is deployed on Vercel. To deploy your own copy:
 
 - Access control is enforced by **Supabase Row Level Security**, not by the frontend. Hiding a page in React is not security.
 - Only admins (rows in `user_roles` with role `admin`) can modify products, orders and product images.
-- Never commit `.env` files or any `service_role` key.
+
 
 ## Roadmap
 
